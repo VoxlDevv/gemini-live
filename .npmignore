@@ -1,0 +1,7 @@
+node_modules/
+src/
+test/
+
+package-lock.json
+tsconfig.json
+tsup.config.ts
