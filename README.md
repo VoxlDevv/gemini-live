@@ -29,13 +29,13 @@ A TypeScript client for real-time communication with Google's Gemini API via Web
 ## Installation
 
 ```bash
-npm install gemini-live
+npm install gemini-livejs
 ```
 
 ## Basic Usage
 
 ```typescript
-import { GeminiLive } from "gemini-live";
+import { GeminiLive } from "gemini-livejs";
 
 // Initialize client
 const client = new GeminiLive("YOUR_API_KEY", {
