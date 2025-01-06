@@ -33,6 +33,7 @@ export class GeminiLive {
     tools: [],
     safetySettings: [],
   };
+  #receive_tool_cancellation?: boolean = false;
   #writable_stream?: Writable | undefined;
   #writable_stream_ready: Promise<Writable>;
   #writable_stream_resolve!: (stream: Writable) => void;
@@ -150,11 +151,18 @@ export class GeminiLive {
           return;
         }
 
+        if (buf_json.toolCallCancellation) {
+          this.#receive_tool_cancellation = true;
+          return;
+        }
+
         const server_content = buf_json.serverContent as SocketResponse;
         if (server_content) this.#incoming_server_content?.(server_content);
 
         const tool_call = buf_json.toolCall as ToolCallSocketResponse;
         if (tool_call) this.#incoming_tool_call?.(tool_call);
+
+        // console.log("[Debug] Gemini Realtime received message:", buf_json);
       } catch (error) {
         console.error("Error processing message:", error);
       }
@@ -287,6 +295,7 @@ export class GeminiLive {
         },
       };
 
+      this.#receive_tool_cancellation = false;
       this.#incoming_server_content = (response: SocketResponse) => {
         if (response.modelTurn?.parts) {
           let part_idx = 0;
@@ -305,10 +314,24 @@ export class GeminiLive {
         }
 
         if (response.turnComplete) {
-          clearTimeout(timeout_handler);
-          this.#incoming_server_content = undefined;
-          this.#incoming_tool_call = undefined;
-          resolve(this.#create_response(chunks));
+          if (this.#receive_tool_cancellation) {
+            chunks.text = [];
+            chunks.audio.data = [];
+            chunks.audio.mimeType = "";
+            chunks.functionCall = undefined;
+            chunks.executableCode = undefined;
+            this.#receive_tool_cancellation = false;
+          } else if (
+            chunks.text.length > 0 ||
+            chunks.audio.data.length > 0 ||
+            chunks.functionCall ||
+            chunks.executableCode
+          ) {
+            clearTimeout(timeout_handler);
+            this.#incoming_server_content = undefined;
+            this.#incoming_tool_call = undefined;
+            resolve(this.#create_response(chunks));
+          }
         }
       };
 
@@ -319,6 +342,7 @@ export class GeminiLive {
           clearTimeout(timeout_handler);
           this.#incoming_server_content = undefined;
           this.#incoming_tool_call = undefined;
+          this.#receive_tool_cancellation = false;
           resolve(this.#create_response(chunks));
         }
       };
@@ -346,6 +370,7 @@ export class GeminiLive {
         clearTimeout(timeout_handler);
         this.#incoming_server_content = undefined;
         this.#incoming_tool_call = undefined;
+        this.#receive_tool_cancellation = false;
         reject(
           new Error(
             `[GeminiRealtime::send] Failed to send message: ${(error as Error).message}`,
@@ -388,6 +413,7 @@ export class GeminiLive {
       },
     };
 
+    this.#receive_tool_cancellation = false;
     this.#incoming_server_content = (response: SocketResponse) => {
       if (response.modelTurn?.parts) {
         let part_idx = 0;
@@ -406,13 +432,26 @@ export class GeminiLive {
       }
 
       if (response.turnComplete) {
-        on_stream_response?.(this.#create_response(chunks));
-
-        chunks.text = [];
-        chunks.audio.data = [];
-        chunks.audio.mimeType = "";
-        chunks.functionCall = undefined;
-        chunks.executableCode = undefined;
+        if (this.#receive_tool_cancellation) {
+          chunks.text = [];
+          chunks.audio.data = [];
+          chunks.audio.mimeType = "";
+          chunks.functionCall = undefined;
+          chunks.executableCode = undefined;
+          this.#receive_tool_cancellation = false;
+        } else if (
+          chunks.text.length > 0 ||
+          chunks.audio.data.length > 0 ||
+          chunks.functionCall ||
+          chunks.executableCode
+        ) {
+          on_stream_response?.(this.#create_response(chunks));
+          chunks.text = [];
+          chunks.audio.data = [];
+          chunks.audio.mimeType = "";
+          chunks.functionCall = undefined;
+          chunks.executableCode = undefined;
+        }
       }
     };
 
@@ -445,6 +484,7 @@ export class GeminiLive {
       chunks.audio.mimeType = "";
       chunks.functionCall = undefined;
       chunks.executableCode = undefined;
+      this.#receive_tool_cancellation = false;
       throw new Error(
         `[GeminiRealtime::send] Failed to send message: ${(error as Error).message}`,
       );
